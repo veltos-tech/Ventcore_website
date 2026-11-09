@@ -1,0 +1,10 @@
+[Unit]
+Description=Run VentCore CRM queue every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+Unit=ventcore-crm-tick.service
+
+[Install]
+WantedBy=timers.target

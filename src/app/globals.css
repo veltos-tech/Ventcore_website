@@ -1,0 +1,553 @@
+@import "tailwindcss";
+
+/* ─── Дизайн-токены VentCore ─────────────────────────────────────────────
+   Цвета сняты с макета Landing Main (Figma), шрифты подключаются в
+   src/app/fonts.ts и пробрасываются сюда через CSS-переменные. */
+@theme {
+  --color-navy: #062647;
+  --color-navy-900: #041b33;
+  --color-blue: #0377c9;
+  --color-blue-600: #0267b0;
+  --color-muted: #8292a2;
+  --color-line: #adb8c3;
+  --color-sky: #8abced;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display-face), var(--font-inter), ui-sans-serif, sans-serif;
+
+  --radius-card: 10px;
+  --radius-panel: 20px;
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+    scroll-padding-top: 24px;
+  }
+
+  body {
+    @apply bg-white font-sans text-navy antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    @apply bg-blue text-white;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-blue);
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* ─── Повторяющиеся паттерны ──────────────────────────────────────────── */
+
+/* Сетка страницы: 4 колонки с зазором 10px на десктопе (как в макете) */
+@utility page-container {
+  @apply mx-auto w-full max-w-[1440px] px-5 lg:px-12.5;
+}
+
+/* Live glass: the pseudo-element filters the actual backdrop, while text and
+   controls stay sharp. Chromium adds a procedural edge lens through an SVG
+   reference filter; other browsers keep the CSS blur, tint and reflections. */
+@layer components {
+  .button-primary {
+    height: 45px;
+  }
+
+  .glass-material {
+    --glass-tint: rgb(6 38 69 / 0.43);
+    --glass-solid: #062647;
+    --glass-blur: 5px;
+    --glass-saturation: 1.3;
+    --glass-depth: 24;
+    --glass-strength: 18;
+    --glass-pointer-x: 20%;
+    --glass-pointer-y: 0%;
+    position: relative;
+    isolation: isolate;
+  }
+
+  .glass-material::before,
+  .glass-material::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+
+  .glass-material::before {
+    z-index: -2;
+    background-color: var(--glass-tint);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+    backdrop-filter: var(--glass-refraction, blur(var(--glass-blur)) saturate(var(--glass-saturation)));
+  }
+
+  .glass-material::after {
+    z-index: -1;
+    background:
+      radial-gradient(
+        ellipse at var(--glass-pointer-x) var(--glass-pointer-y),
+        rgb(255 255 255 / 0.13),
+        rgb(255 255 255 / 0) 65%
+      ),
+      linear-gradient(135deg, rgb(255 255 255 / 0.045), transparent 45%, rgb(1 18 36 / 0.035));
+    box-shadow:
+      inset 0 0.75px 0 rgb(255 255 255 / 0.62),
+      inset 0.75px 0 1px rgb(255 255 255 / 0.18),
+      inset -0.75px 0 1px rgb(255 255 255 / 0.55),
+      inset 0 -0.75px 1px rgb(255 255 255 / 0.38),
+      inset 0 0 16px -10px rgb(255 255 255 / 0.6);
+  }
+
+  .glass-material-hero {
+    --glass-depth: 28;
+    --glass-strength: 24;
+  }
+
+  .glass-material-contacts {
+    --glass-tint: rgb(6 38 69 / 0.5);
+    --glass-depth: 22;
+    --glass-strength: 18;
+  }
+
+  .glass-material-form {
+    --glass-blur: 6px;
+    --glass-strength: 14;
+  }
+
+  .glass-material-blue {
+    --glass-tint: rgb(3 119 201 / 0.46);
+    --glass-solid: #0377c9;
+    --glass-blur: 4px;
+    --glass-saturation: 1.35;
+    --glass-depth: 22;
+    --glass-strength: 20;
+  }
+
+  /* Gallery descriptions filter the live photograph behind the text. */
+  .glass-material-gallery {
+    --glass-tint: rgb(6 38 69 / 0.65);
+    --glass-blur: 12px;
+    --glass-saturation: 0.95;
+    --glass-depth: 28;
+    --glass-strength: 16;
+  }
+
+  .work-card { container-type: inline-size; }
+
+  .work-card-image {
+    transition: scale 600ms var(--ease-out-soft);
+  }
+
+  .work-card-description {
+    padding: clamp(36px, 6cqi, 40px) clamp(20px, 5.4cqi, 36px) clamp(24px, 6cqi, 40px);
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 250ms ease, visibility 250ms;
+  }
+
+  .work-card[data-expanded="true"] .work-card-description {
+    visibility: visible;
+    opacity: 1;
+  }
+
+  .work-card[data-expanded="true"] .work-card-image {
+    scale: 1.025;
+  }
+
+  .work-card-hint { transition: opacity 180ms; }
+  .work-card[data-expanded="true"] .work-card-hint { opacity: 0; }
+
+  .work-card-toggle:focus-visible {
+    outline: 2px solid white;
+    outline-offset: -4px;
+  }
+
+  .work-card-title {
+    font-size: clamp(20px, 4.21cqi, 28px);
+    line-height: 1.2;
+  }
+
+  .work-card-copy,
+  .work-card-facts {
+    font-size: clamp(15px, 3.31cqi, 22px);
+    line-height: 1.32;
+  }
+
+  .work-card-copy { margin-top: clamp(12px, 3cqi, 20px); }
+  .work-card-facts { margin-top: clamp(16px, 4.2cqi, 28px); }
+
+  @container (max-width: 300px) {
+    .work-card-description { padding: 40px 16px 20px; }
+    .work-card-copy, .work-card-facts { font-size: 14px; }
+    .work-card-title { font-size: 19px; }
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .work-card-hint { opacity: 0; }
+  }
+
+  /* Иконки в капсуле контактов: при наведении увеличиваются и светятся белым —
+     ореол за иконкой (::before) и сияние самой иконки (drop-shadow) */
+  .contact-link {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .contact-link::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    z-index: -1;
+    width: 48px;
+    height: 48px;
+    translate: -50% -50%;
+    scale: 0.4;
+    border-radius: 50%;
+    background: radial-gradient(
+      circle,
+      rgb(255 255 255 / 0.45),
+      rgb(255 255 255 / 0.14) 45%,
+      rgb(255 255 255 / 0) 70%
+    );
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      opacity 0.3s ease,
+      scale 0.5s var(--ease-spring);
+  }
+
+  .contact-link svg {
+    transition:
+      scale 0.5s var(--ease-spring),
+      filter 0.3s ease;
+  }
+
+  .contact-link:focus-visible::before,
+  .contact-link:active::before {
+    opacity: 1;
+    scale: 1;
+  }
+
+  .contact-link:focus-visible svg,
+  .contact-link:active svg {
+    scale: 1.22;
+    filter: drop-shadow(0 0 6px rgb(255 255 255 / 0.95)) drop-shadow(0 0 14px rgb(255 255 255 / 0.55));
+  }
+
+  @media (hover: hover) {
+    .contact-link:hover::before {
+      opacity: 1;
+      scale: 1;
+    }
+
+    .contact-link:hover svg {
+      scale: 1.22;
+      filter: drop-shadow(0 0 6px rgb(255 255 255 / 0.95)) drop-shadow(0 0 14px rgb(255 255 255 / 0.55));
+    }
+  }
+
+  .contact-link:active svg {
+    scale: 1.1;
+    transition-duration: 0.15s;
+  }
+
+  /* Панель мобильного меню: плотнее и сильнее размыта — текст лежит поверх фото */
+  .glass-material-menu {
+    --glass-tint: rgb(6 38 69 / 0.56);
+    --glass-blur: 18px;
+    --glass-saturation: 1.6;
+    --glass-depth: 30;
+    --glass-strength: 26;
+  }
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass-material::before {
+      background-color: var(--glass-solid);
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .glass-material::before {
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
+      background-color: var(--glass-solid);
+    }
+    .glass-material::after {
+      background: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .glass-material {
+      background: Canvas;
+      color: CanvasText;
+      outline: 1px solid CanvasText;
+    }
+    .glass-material::before,
+    .glass-material::after {
+      display: none;
+    }
+  }
+}
+
+/* Плавное раскрытие <details> в FAQ (Chrome 131+, Safari 18.4+; в остальных — без анимации) */
+@supports (interpolate-size: allow-keywords) {
+  .faq-item {
+    interpolate-size: allow-keywords;
+  }
+
+  .faq-item::details-content {
+    block-size: 0;
+    overflow: clip;
+    transition:
+      block-size 0.35s var(--ease-out-soft),
+      content-visibility 0.35s allow-discrete;
+  }
+
+  .faq-item[open]::details-content {
+    block-size: auto;
+  }
+}
+
+/* Декоративные «потоки» в блоке «Почему мы»: крайние полосы плавно меняют
+   ширину между --w и --w-to, средняя заполняет остаток */
+@keyframes flow-shift {
+  0%,
+  100% {
+    flex-basis: var(--w);
+  }
+  50% {
+    flex-basis: var(--w-to);
+  }
+}
+
+@utility animate-flow {
+  animation: flow-shift 7s ease-in-out infinite;
+}
+
+/* Блокируем прокрутку страницы под открытым модальным окном */
+html:has(dialog[open]:modal) {
+  overflow: hidden;
+}
+
+/* ─── Мобильное меню ──────────────────────────────────────────────────────
+   Стеклянная панель «вырастает» из кнопки-бургера (transform-origin — центр
+   иконки), линии бургера складываются в крестик, пункты появляются по очереди.
+   Закрытие — то же в обратную сторону: [data-closing] ставит MobileMenu и
+   ждёт окончания menu-panel-out.
+   Саму панель анимируем только transform: opacity/filter у предка
+   отключили бы размытие фона под стеклом (Backdrop Root). Прозрачность
+   анимируется у стеклянного слоя (::before/::after) и у содержимого. */
+.mobile-menu::backdrop {
+  background: rgb(4 27 51 / 0.3);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.mobile-menu[open]::backdrop {
+  animation: menu-fade-in 0.4s ease-out both;
+}
+
+.mobile-menu[data-closing]::backdrop {
+  animation: menu-fade-out 0.3s ease-in both;
+}
+
+.mobile-menu__panel {
+  transform-origin: 22px 20px;
+}
+
+.mobile-menu[open] .mobile-menu__panel {
+  animation: menu-panel-in 0.62s cubic-bezier(0.3, 1.22, 0.5, 1) both;
+}
+
+.mobile-menu[open] .mobile-menu__panel::before,
+.mobile-menu[open] .mobile-menu__panel::after {
+  animation: menu-fade-in 0.3s ease-out both;
+}
+
+.mobile-menu[data-closing] .mobile-menu__panel {
+  animation: menu-panel-out 0.34s cubic-bezier(0.55, 0, 0.75, 0.2) both;
+}
+
+.mobile-menu[data-closing] .mobile-menu__panel::before,
+.mobile-menu[data-closing] .mobile-menu__panel::after {
+  animation: menu-fade-out 0.24s ease-in 0.1s both;
+}
+
+.mobile-menu[open] [data-menu-item] {
+  animation: menu-item-in 0.5s var(--ease-out-soft) both;
+  animation-delay: calc(120ms + var(--i, 0) * 40ms);
+}
+
+.mobile-menu[data-closing] [data-menu-item] {
+  animation: menu-item-out 0.16s ease-in both;
+}
+
+/* Крестик из трёх линий бургера */
+.menu-toggle-line {
+  position: absolute;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.menu-toggle-line:nth-child(1) {
+  top: 2px;
+}
+
+.menu-toggle-line:nth-child(2) {
+  top: 9px;
+}
+
+.menu-toggle-line:nth-child(3) {
+  top: 16px;
+}
+
+.mobile-menu[open] .menu-toggle-line:nth-child(1) {
+  animation: menu-x-top 0.5s var(--ease-spring) 0.1s both;
+}
+
+.mobile-menu[open] .menu-toggle-line:nth-child(2) {
+  animation: menu-x-middle 0.25s ease-out 0.1s both;
+}
+
+.mobile-menu[open] .menu-toggle-line:nth-child(3) {
+  animation: menu-x-bottom 0.5s var(--ease-spring) 0.1s both;
+}
+
+.mobile-menu[data-closing] .menu-toggle-line:nth-child(1) {
+  animation: menu-x-top-back 0.26s ease-in both;
+}
+
+.mobile-menu[data-closing] .menu-toggle-line:nth-child(2) {
+  animation: menu-x-middle-back 0.26s ease-in both;
+}
+
+.mobile-menu[data-closing] .menu-toggle-line:nth-child(3) {
+  animation: menu-x-bottom-back 0.26s ease-in both;
+}
+
+@keyframes menu-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes menu-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes menu-panel-in {
+  from {
+    transform: scale(0.12);
+  }
+}
+
+@keyframes menu-panel-out {
+  to {
+    transform: scale(0.12);
+  }
+}
+
+@keyframes menu-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+@keyframes menu-item-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes menu-x-top {
+  to {
+    transform: translateY(7px) rotate(45deg) scaleX(0.9);
+  }
+}
+
+@keyframes menu-x-middle {
+  to {
+    opacity: 0;
+    transform: scaleX(0.2);
+  }
+}
+
+@keyframes menu-x-bottom {
+  to {
+    transform: translateY(-7px) rotate(-45deg) scaleX(0.9);
+  }
+}
+
+@keyframes menu-x-top-back {
+  from {
+    transform: translateY(7px) rotate(45deg) scaleX(0.9);
+  }
+}
+
+@keyframes menu-x-middle-back {
+  from {
+    opacity: 0;
+    transform: scaleX(0.2);
+  }
+}
+
+@keyframes menu-x-bottom-back {
+  from {
+    transform: translateY(-7px) rotate(-45deg) scaleX(0.9);
+  }
+}
+
+/* Панель сертификата выезжает на соседний блок: сверху вниз или снизу вверх */
+.certificate-panel {
+  animation: certificate-panel-from-top 0.45s var(--ease-out-soft) both;
+}
+
+.certificate-panel[data-from="bottom"] {
+  animation-name: certificate-panel-from-bottom;
+}
+
+@keyframes certificate-panel-from-top {
+  from {
+    clip-path: inset(0 0 100% 0);
+    transform: translateY(-16px);
+    opacity: 0;
+  }
+}
+
+@keyframes certificate-panel-from-bottom {
+  from {
+    clip-path: inset(100% 0 0 0);
+    transform: translateY(16px);
+    opacity: 0;
+  }
+}

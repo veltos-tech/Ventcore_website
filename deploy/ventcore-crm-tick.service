@@ -1,0 +1,15 @@
+[Unit]
+Description=VentCore CRM notification and reminder queue
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ventcore
+Group=ventcore
+EnvironmentFile=/etc/ventcore/crm.env
+WorkingDirectory=/opt/ventcore
+ExecStart=/usr/bin/node /opt/ventcore/scripts/crm-tick.mjs
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

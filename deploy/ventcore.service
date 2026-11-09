@@ -1,0 +1,36 @@
+# Пример unit-файла сайта и CRM-бота. Пути и пользователя замените на свои:
+#   cp deploy/ventcore.service /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now ventcore
+[Unit]
+Description=VentCore website and CRM bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ventcore
+Group=ventcore
+EnvironmentFile=/etc/ventcore/crm.env
+WorkingDirectory=/opt/ventcore
+ExecStart=/usr/bin/node /opt/ventcore/node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3000
+
+# Сервис поднимается сам после сбоя или перезагрузки сервера.
+Restart=always
+RestartSec=3
+# При остановке даём 30 секунд дописать журнал базы и закрыть её.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# /var/lib/ventcore создаётся и принадлежит сервису; не стирается при выпуске новых версий.
+# Там лежат база (CRM_DB_PATH=/var/lib/ventcore/crm.sqlite) и копии (/var/lib/ventcore/backups).
+StateDirectory=ventcore
+StateDirectoryMode=0700
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/ventcore/.next/cache
+
+[Install]
+WantedBy=multi-user.target
