@@ -9,6 +9,16 @@ updates:
       time: "07:00"
       timezone: Europe/Moscow
     open-pull-requests-limit: 5
+    # Мажорные версии этих пакетов связаны с остальным стеком: TypeScript 7 сломал typescript-eslint (линтер падал),
+    # @types/node должен совпадать с Node на сервере (24), а новый мажор ESLint — с eslint-config-next.
+    # Их обновляют осознанно, вручную, после проверки CI.
+    ignore:
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint
+        update-types: ["version-update:semver-major"]
     groups:
       next-react:
         patterns: ["next", "react", "react-dom", "eslint-config-next", "@types/react", "@types/react-dom"]
