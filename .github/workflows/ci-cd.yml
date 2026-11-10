@@ -126,7 +126,13 @@ jobs:
           DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
           DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
         run: |
-          [ -n "$DEPLOY_HOST" ] || { echo "::error::Не задан секрет DEPLOY_HOST"; exit 1; }
+          # При вставке в секрет легко добавить перевод строки, пробел или кавычки — убираем их и проверяем значения.
+          clean() { local v; v=$(printf '%s' "$1" | tr -d "\"'\r"); v="${v#"${v%%[![:space:]]*}"}"; printf '%s' "${v%"${v##*[![:space:]]}"}"; }
+          DEPLOY_HOST=$(clean "$DEPLOY_HOST"); DEPLOY_USER=$(clean "$DEPLOY_USER"); DEPLOY_PORT=$(clean "$DEPLOY_PORT")
+          [ -n "$DEPLOY_HOST" ] || { echo "::error::Не задан секрет DEPLOY_HOST (или он состоит из одних пробелов)"; exit 1; }
+          [[ $DEPLOY_HOST =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || { echo "::error::DEPLOY_HOST содержит недопустимые символы: нужен только адрес, например vent-core.com или 203.0.113.10 — без ssh://, имени пользователя, порта, кириллицы и пробелов. Сохраните секрет заново."; exit 1; }
+          [[ $DEPLOY_USER =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "::error::Переменная DEPLOY_USER содержит недопустимые символы (ожидается deploy)."; exit 1; }
+          [[ $DEPLOY_PORT =~ ^[0-9]{1,5}$ ]] || { echo "::error::Переменная DEPLOY_PORT должна быть числом."; exit 1; }
           printf '%s\n' "$GITHUB_SHA" | ssh \
             -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
             -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
