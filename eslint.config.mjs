@@ -5,5 +5,6 @@ import nextTs from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
-  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts"]),
+  // *.prev — сохранённая прошлая версия на сервере на время выпуска (deploy/ventcore-deploy).
+  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts", "node_modules.prev/**", ".next.prev/**"]),
 ]);
