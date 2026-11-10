@@ -14,7 +14,13 @@ export const metadata: Metadata = {
   },
   description: site.description,
   applicationName: site.name,
+  // favicon.ico (нужен Яндексу и старым браузерам) Next подключает сам из src/app/favicon.ico; здесь — SVG для современных браузеров.
   icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }] },
+  // Коды подтверждения владения сайтом в Google Search Console и Яндекс Вебмастере (задаются в настройках сервера, значение вшивается при сборке).
+  verification: {
+    ...(process.env.GOOGLE_SITE_VERIFICATION?.trim() ? { google: process.env.GOOGLE_SITE_VERIFICATION.trim() } : {}),
+    ...(process.env.YANDEX_VERIFICATION?.trim() ? { yandex: process.env.YANDEX_VERIFICATION.trim() } : {}),
+  },
   alternates: { canonical: "/" },
   openGraph: {
     type: "website",
