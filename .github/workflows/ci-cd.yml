@@ -45,6 +45,9 @@ jobs:
       - name: Защита базы заявок
         run: npm run test:db
 
+      - name: HTML-виджеты Telegram (лимиты платформы)
+        run: npm run test:widgets
+
       - name: Скрипт выпуска
         run: bash deploy/test-deploy.sh
 
@@ -52,6 +55,10 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: "1"
         run: npm run build
+
+      # Бот на собранном сайте: клиентские и админские сценарии, кнопки, виджеты, отказы Telegram. Telegram API подменён.
+      - name: Сценарии бота
+        run: npm run test:bot
 
       # Запускаем собранный сайт так же, как на сервере, и открываем основные страницы.
       - name: Проверка собранного сайта

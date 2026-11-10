@@ -69,6 +69,7 @@ run_deploy() {
     backup_db() { echo backup >>"$WORK/case/calls"; [[ -z ${FAIL_BACKUP:-} ]]; }
     install_deps() { rm -rf "$APP_DIR/node_modules" && mkdir -p "$APP_DIR/node_modules" && echo new >"$APP_DIR/node_modules/new.txt"; }
     build_app() { [[ -z ${FAIL_BUILD:-} ]] || return 1; mkdir -p "$APP_DIR/.next" && echo new-build >"$APP_DIR/.next/BUILD"; }
+    sync_bot() { echo sync >>"$WORK/case/calls"; [[ -z ${FAIL_SYNC:-} ]]; }
     health_check() { [[ -z ${FAIL_HEALTH:-} || -f $WORK/case/rolled-back ]]; }
     # Откат считается выполненным, когда сайт запущен второй раз.
     systemctl() {
@@ -89,7 +90,14 @@ check "зависимости новые" test "$(cat "$APP/node_modules/new.txt
 check "старых зависимостей нет" test ! -e "$APP/node_modules/old.txt"
 check "сборка новая" test "$(cat "$APP/.next/BUILD")" = new-build
 check "временные каталоги убраны" test ! -e "$APP/node_modules.prev" -a ! -e "$APP/.next.prev"
-check "порядок: копия → остановка → запуск" bash -c "tr '\n' ' ' <'$WORK/case/calls' | grep -q '^backup systemctl stop ventcore systemctl start ventcore $'"
+check "порядок: копия → остановка → запуск → настройка бота" bash -c "tr '\n' ' ' <'$WORK/case/calls' | grep -q '^backup systemctl stop ventcore systemctl start ventcore sync $'"
+
+echo "1б. Сбой настройки бота не отменяет выпуск"
+setup modern
+FAIL_SYNC=1 run_deploy "$B"
+check "код обновлён до B" test "$(head_of_app)" = "$B"
+check "предупреждение выведено" grep -q 'не удалось обновить настройки бота' "$WORK/case/out"
+check "прежняя версия не возвращалась" test "$(grep -c '^systemctl start' "$WORK/case/calls")" = 1
 
 echo "2. Ошибка сборки — откат на прежнюю версию (legacy)"
 setup legacy
