@@ -1,0 +1,139 @@
+name: CI/CD
+
+# Проверка — на каждый pull request и каждый push в main.
+# Выпуск на сервер — только после успешной проверки и только для main.
+# Повторный выпуск без изменений кода (например, после смены настроек в /etc/ventcore/crm.env,
+# которые вшиваются при сборке) — вкладка Actions → CI/CD → Run workflow.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Проверка
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Действия закреплены по хэшу коммита (а не по тегу), чтобы подмена тега не могла выполнить чужой код с доступом к секретам.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Установка зависимостей
+        run: npm ci --no-audit --no-fund
+
+      - name: Линтер
+        run: npm run lint
+
+      - name: Типы
+        run: npm run typecheck
+
+      - name: Защита базы заявок
+        run: npm run test:db
+
+      - name: Скрипт выпуска
+        run: bash deploy/test-deploy.sh
+
+      - name: Сборка
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
+
+      # Запускаем собранный сайт так же, как на сервере, и открываем основные страницы.
+      - name: Проверка собранного сайта
+        run: |
+          npm start -- -H 127.0.0.1 -p 3100 > "$RUNNER_TEMP/next.log" 2>&1 &
+          server=$!
+          trap 'kill $server 2>/dev/null || true' EXIT
+          curl -fsS --retry 30 --retry-delay 1 --retry-connrefused -o /dev/null http://127.0.0.1:3100/
+          for route in / /objekty /rekvizity /privacy /terms /consent /blog /robots.txt /sitemap.xml; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3100$route")
+            echo "$code $route"
+            [ "$code" = 200 ] || { echo "::error::$route вернул $code"; cat "$RUNNER_TEMP/next.log"; exit 1; }
+          done
+          # Служебные адреса без секрета должны быть закрыты.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3100/api/internal/crm/tick)
+          echo "$code /api/internal/crm/tick (без секрета)"
+          [ "$code" = 401 ] || { echo "::error::служебный адрес tick не закрыт ($code)"; exit 1; }
+
+  # Отдельно и не блокирует выпуск: новая уязвимость в зависимости не должна мешать срочному исправлению.
+  audit:
+    name: Уязвимости в зависимостях
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: npm audit --omit=dev --audit-level=high
+
+  deploy:
+    name: Выпуск на сервер
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # В настройках репозитория (Settings → Environments → production) можно включить обязательное подтверждение выпуска.
+    environment:
+      name: production
+      url: ${{ vars.SITE_URL || 'https://vent-core.com' }}
+    # Выпуски идут строго по очереди, незавершённый выпуск не прерывается.
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Подготовка SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          [ -n "$DEPLOY_SSH_KEY" ] && [ -n "$DEPLOY_KNOWN_HOSTS" ] || { echo "::error::Не заданы секреты DEPLOY_SSH_KEY / DEPLOY_KNOWN_HOSTS (см. README, «Автоматический выпуск»)"; exit 1; }
+          install -m 700 -d ~/.ssh
+          umask 077
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      # Серверу передаётся только хэш проверенного коммита. Скрипт на сервере сам скачивает код из GitHub,
+      # убеждается, что коммит из main, делает копию базы, собирает сайт и при любой ошибке откатывает выпуск.
+      - name: Выпуск
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+        run: |
+          [ -n "$DEPLOY_HOST" ] || { echo "::error::Не задан секрет DEPLOY_HOST"; exit 1; }
+          printf '%s\n' "$GITHUB_SHA" | ssh \
+            -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+            -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
+            "$DEPLOY_USER@$DEPLOY_HOST"
+
+      - name: Проверка сайта снаружи
+        env:
+          SITE_URL: ${{ vars.SITE_URL || 'https://vent-core.com' }}
+        run: |
+          curl -fsS --retry 6 --retry-delay 10 --retry-all-errors -m 20 -o /dev/null "$SITE_URL/"
+          curl -fsS -m 20 -o /dev/null "$SITE_URL/robots.txt"
+          echo "Сайт отвечает: $SITE_URL"
+
+      - name: Убрать ключ
+        if: always()
+        run: rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts

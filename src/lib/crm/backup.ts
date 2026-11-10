@@ -42,9 +42,10 @@ export const stamp = (time = Date.now()) => new Date(time).toISOString().replace
 /** Копии от новых к старым. Чужие файлы в папке игнорируются. */
 function listBackups(): BackupInfo[] {
   const dir = backupDir();
-  if (!existsSync(dir)) return [];
+  // Путь задаётся настройкой сервера, а не лежит в проекте — сборщику не нужно «подтягивать» весь проект.
+  if (!existsSync(/* turbopackIgnore: true */ dir)) return [];
   const result: BackupInfo[] = [];
-  for (const file of readdirSync(dir)) {
+  for (const file of readdirSync(/* turbopackIgnore: true */ dir)) {
     const match = NAME.exec(file);
     if (!match) continue;
     const [, y, mo, d, h, mi, s, reason] = match;

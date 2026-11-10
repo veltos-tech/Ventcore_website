@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+# Выпуск новой версии VentCore на сервере.
+#
+# Устанавливается в /usr/local/sbin/ventcore-deploy (владелец root, см. deploy/install-ci-access.sh)
+# и запускается из GitHub Actions по SSH от пользователя deploy через sudo.
+# Из рабочей папки сайта скрипт НЕ запускается: код, который он выпускает, не должен
+# иметь возможность изменить сам скрипт с правами root.
+#
+# Вход: в stdin — полный (40 символов) хэш коммита из ветки main.
+# Порядок: проверка коммита → копия базы → остановка сайта → код и зависимости → сборка →
+# запуск → проверка. Любая ошибка после остановки сайта откатывает код и сборку на прежние
+# и запускает прежнюю версию. База и настройки (/var/lib/ventcore, /etc/ventcore) не трогаются.
+#
+# Во время сборки сайт недоступен (обычно 2–4 минуты): на сервере 2 ГБ памяти, а сборка
+# вместе с работающим сайтом рискует упереться в память.
+
+set -Eeuo pipefail
+umask 022
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+APP_USER=ventcore
+APP_DIR=/opt/ventcore
+APP_HOME=/var/cache/ventcore          # домашняя папка и кэш npm для сборки (не в папке сайта)
+ENV_FILE=/etc/ventcore/crm.env
+SERVICE=ventcore
+HEALTH_URL=http://127.0.0.1:3000/robots.txt
+LOCK=/run/lock/ventcore-deploy.lock
+
+TARGET="" PREV="" PHASE="запуск" STOPPED=0 SWITCHED=0
+
+log() {
+  printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"
+  logger -t ventcore-deploy -- "$*" 2>/dev/null || true
+}
+
+die() {
+  log "ОШИБКА: $*"
+  exit 1
+}
+
+# Команда от имени пользователя сайта. HOME и кэш npm — в отдельной папке, чтобы не зависеть от настроек пользователя.
+as_app() {
+  runuser -u "$APP_USER" -- env HOME="$APP_HOME" npm_config_cache="$APP_HOME/.npm" \
+    NEXT_TELEMETRY_DISABLED=1 "$@"
+}
+
+git_app() { as_app git -C "$APP_DIR" "$@"; }
+
+retry() {
+  local attempts=$1 n=1
+  shift
+  until "$@"; do
+    ((n < attempts)) || return 1
+    log "Не удалось (попытка $n из $attempts): $*. Повтор через 5 с."
+    sleep 5
+    ((n++))
+  done
+}
+
+backup_db() {
+  # Базы может ещё не быть (пока не было ни одной заявки) — тогда копировать нечего.
+  as_app bash -c '
+    set -a; . "$0"; set +a
+    cd "$1"
+    if [ -z "${CRM_DB_PATH:-}" ] || [ ! -f "$CRM_DB_PATH" ]; then echo "Базы ещё нет — копия не нужна."; exit 0; fi
+    exec node scripts/crm-db.mjs backup
+  ' "$ENV_FILE" "$APP_DIR"
+}
+
+install_deps() {
+  as_app bash -c 'cd "$0" && exec timeout 900 npm ci --no-audit --no-fund' "$APP_DIR"
+}
+
+# Настройки сборки (NEXT_PUBLIC_SITE_URL, LEGAL_DOCUMENTS_APPROVED и др.) берутся из того же crm.env,
+# что и у работающего сайта. Через `node --env-file` Next.js сборку не принимает, поэтому — через bash.
+build_app() {
+  as_app timeout 1200 bash -c '
+    set -a; . "$0"; set +a
+    cd "$1"
+    exec node node_modules/next/dist/bin/next build
+  ' "$ENV_FILE" "$APP_DIR"
+}
+
+health_check() {
+  local i
+  for i in $(seq 1 30); do
+    if systemctl is-active --quiet "$SERVICE" && curl -fsS -m 5 -o /dev/null "$HEALTH_URL"; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+on_error() {
+  local code=$?
+  trap - ERR
+  set +e
+  log "ОШИБКА на этапе «$PHASE» (код $code)."
+  if [[ $SWITCHED == 1 ]]; then
+    log "Откатываю код и сборку на $PREV."
+    git_app reset --hard "$PREV" >/dev/null
+    # При откате git мог вернуть файлы прежней версии — берём сохранённые каталоги, они точнее.
+    if [[ -d $APP_DIR/node_modules.prev ]]; then
+      rm -rf "${APP_DIR:?}/node_modules" && mv "$APP_DIR/node_modules.prev" "$APP_DIR/node_modules"
+    fi
+    if [[ -d $APP_DIR/.next.prev ]]; then
+      rm -rf "${APP_DIR:?}/.next" && mv "$APP_DIR/.next.prev" "$APP_DIR/.next"
+    fi
+  fi
+  if [[ $STOPPED == 1 ]]; then
+    systemctl start "$SERVICE"
+    if health_check; then
+      log "Прежняя версия снова работает. Выпуск отменён."
+    else
+      log "ВНИМАНИЕ: сайт не отвечает после отката. Смотрите: journalctl -u $SERVICE -n 100"
+    fi
+  fi
+  exit 1
+}
+
+deploy() {
+  trap on_error ERR
+
+  PHASE="проверка окружения"
+  [[ -d $APP_DIR/.git ]] || die "$APP_DIR не является git-репозиторием"
+  [[ -r $ENV_FILE ]] || die "нет файла настроек $ENV_FILE"
+  install -d -o "$APP_USER" -g "$APP_USER" -m 700 "$APP_HOME"
+  PREV=$(git_app rev-parse HEAD)
+
+  PHASE="загрузка кода"
+  log "Сейчас на сервере: ${PREV:0:10}. Выпускаю: ${TARGET:0:10}."
+  retry 3 git_app fetch --quiet --prune origin main
+  git_app cat-file -e "${TARGET}^{commit}" || die "коммит ${TARGET:0:10} не найден в репозитории"
+  # Выпускаются только коммиты основной ветки: произвольную ветку или чужой коммит скрипт не примет.
+  git_app merge-base --is-ancestor "$TARGET" origin/main || die "коммит ${TARGET:0:10} не входит в ветку main"
+  if git_app merge-base --is-ancestor "$TARGET" "$PREV" && [[ $TARGET != "$PREV" ]]; then
+    log "Внимание: выпускаемый коммит старше текущего (откат на более раннюю версию)."
+  fi
+
+  PHASE="резервная копия базы"
+  backup_db
+
+  PHASE="остановка сайта"
+  systemctl stop "$SERVICE"
+  STOPPED=1
+
+  PHASE="переключение кода"
+  rm -rf "${APP_DIR:?}/node_modules.prev" "${APP_DIR:?}/.next.prev"
+  [[ ! -d $APP_DIR/node_modules ]] || as_app mv "$APP_DIR/node_modules" "$APP_DIR/node_modules.prev"
+  [[ ! -d $APP_DIR/.next ]] || as_app mv "$APP_DIR/.next" "$APP_DIR/.next.prev"
+  SWITCHED=1
+  git_app reset --hard "$TARGET" >/dev/null
+
+  PHASE="установка зависимостей"
+  log "Устанавливаю зависимости."
+  install_deps
+
+  PHASE="сборка"
+  log "Собираю сайт."
+  build_app
+
+  PHASE="запуск"
+  systemctl start "$SERVICE"
+  health_check
+
+  PHASE="уборка"
+  rm -rf "${APP_DIR:?}/node_modules.prev" "${APP_DIR:?}/.next.prev"
+  trap - ERR
+  log "Готово: на сервере ${TARGET:0:10}."
+}
+
+main() {
+  [[ $EUID -eq 0 ]] || die "скрипт нужно запускать через sudo"
+  # Хэш коммита приходит строкой в stdin — не аргументом и не переменной окружения, чтобы не было подмены.
+  IFS= read -r TARGET || true
+  [[ $TARGET =~ ^[0-9a-f]{40}$ ]] || die "на stdin ожидался полный хэш коммита (40 символов a–f, 0–9)"
+  exec </dev/null
+  exec 9>"$LOCK"
+  flock -n 9 || die "другой выпуск уже идёт"
+  deploy
+}
+
+# Выполняется только при запуске, а не при source (так скрипт проверяется в deploy/test-deploy.sh).
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+  main "$@"
+fi

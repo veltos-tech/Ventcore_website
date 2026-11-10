@@ -1,0 +1,22 @@
+# deps
+/node_modules
+
+# next
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+
+# env
+.env*
+!.env.example
+
+# misc
+.DS_Store
+*.log
+
+# CRM database and SQLite sidecars
+/data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # Зависимости сайта: раз в неделю одним pull request'ом на группу. Выпуск — только после зелёной проверки и вашего слияния.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Moscow
+    open-pull-requests-limit: 5
+    groups:
+      next-react:
+        patterns: ["next", "react", "react-dom", "eslint-config-next", "@types/react", "@types/react-dom"]
+      tailwind:
+        patterns: ["tailwindcss", "@tailwindcss/*"]
+      tooling:
+        dependency-type: development
+        exclude-patterns: ["eslint-config-next", "@types/react", "@types/react-dom", "@tailwindcss/*", "tailwindcss"]
+
+  # Версии GitHub Actions закреплены по хэшу — Dependabot обновляет и хэш, и комментарий с версией.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Moscow
