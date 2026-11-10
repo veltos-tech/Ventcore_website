@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test:db": "node scripts/test-crm-db.mjs",
     "test:widgets": "node scripts/test-widgets.mjs",
-    "test:bot": "node scripts/test-bot.mjs"
+    "test:bot": "node scripts/test-bot.mjs",
+    "test:images": "node scripts/test-images.mjs"
   },
   "dependencies": {
     "next": "16.4.5",

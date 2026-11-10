@@ -48,6 +48,9 @@ jobs:
       - name: HTML-виджеты Telegram (лимиты платформы)
         run: npm run test:widgets
 
+      - name: Картинки (настройки next/image и прогрев кэша)
+        run: npm run test:images
+
       - name: Скрипт выпуска
         run: bash deploy/test-deploy.sh
 

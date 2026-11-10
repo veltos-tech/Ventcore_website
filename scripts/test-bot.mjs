@@ -25,7 +25,7 @@ const server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'star
     NODE_OPTIONS: `--require=${JSON.stringify(resolve('scripts/mock-telegram.cjs'))}`,
     MOCK_TELEGRAM_LOG: logFile, MOCK_TELEGRAM_CONTROL: controlFile,
     TELEGRAM_BOT_TOKEN: '123456:TEST-TOKEN', TELEGRAM_ADMIN_IDS: String(ADMIN), TELEGRAM_WEBHOOK_SECRET: secret,
-    CRM_CRON_SECRET: 'test-cron-secret-0123456789-abcdefghijk', CRM_DB_PATH: dbFile, CRM_BACKUP_DIR: join(root, 'backups') },
+    CRM_CRON_SECRET: 'test-cron-secret-0123456789-abcdefghijk', CRM_INTERNAL_URL: base, CRM_DB_PATH: dbFile, CRM_BACKUP_DIR: join(root, 'backups') },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let serverOutput = '';
@@ -266,6 +266,31 @@ try {
     assert.match(help.payload.text, /Статусы заявок/);
     const home = only(await callback(ADMIN, 'menu:home', 60), 'editMessageText')[0];
     assert.match(home.payload.text, /сводка/);
+  });
+  await scenario('прогрев картинок: после запуска сайт сам готовит кэш, и первый посетитель получает картинку из кэша', async () => {
+    const tick = await fetch(`${base}/api/internal/crm/tick`, { method: 'POST', headers: { authorization: 'Bearer test-cron-secret-0123456789-abcdefghijk' } });
+    assert.equal(tick.status, 200, 'тик должен отвечать сразу, не дожидаясь прогрева');
+    let summary;
+    for (let i = 0; i < 240 && !summary; i++) { summary = /\[images\] Прогрето (\d+) из (\d+) картинок \(страниц: (\d+), ошибок: (\d+)\) за (\d+) с/.exec(serverOutput); if (!summary) await new Promise((done) => setTimeout(done, 500)); }
+    assert.ok(summary, `прогрев не завершился за 2 минуты:\n${serverOutput.slice(-500)}`);
+    const [, warmed, total, pages, failed] = summary.map(Number);
+    console.log(`       прогрето ${warmed} из ${total}, страниц ${pages}, за ${summary[5]} с`);
+    assert.ok(total >= 20 && pages >= 10, 'должны быть обойдены главная и страницы из sitemap');
+    assert.equal(failed, 0);
+    assert.equal(warmed, total);
+    // Повторный тик не запускает прогрев второй раз.
+    const before = serverOutput.length;
+    await fetch(`${base}/api/internal/crm/tick`, { method: 'POST', headers: { authorization: 'Bearer test-cron-secret-0123456789-abcdefghijk' } });
+    await new Promise((done) => setTimeout(done, 1500));
+    assert.ok(!serverOutput.slice(before).includes('[images]'), 'прогрев должен выполняться один раз за запуск');
+    // Главная картинка героя уже в кэше оптимизатора.
+    const html = await (await fetch(`${base}/`)).text();
+    const hero = /\/_next\/image\?url=%2Fimages%2Fhero%2Fmain-desktop-background\.png&amp;w=1920&amp;q=85/.exec(html);
+    assert.ok(hero, 'адрес картинки героя не найден в HTML');
+    const image = await fetch(base + hero[0].replace(/&amp;/g, '&'), { headers: { accept: 'image/avif,image/webp,*/*' } });
+    assert.equal(image.headers.get('x-nextjs-cache'), 'HIT');
+    assert.equal(image.headers.get('content-type'), 'image/avif');
+    assert.match(image.headers.get('cache-control') ?? '', /max-age=604800/);
   });
 } finally {
   stop();
